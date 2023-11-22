@@ -17,7 +17,7 @@ from proj2_code.student_harris import (
   get_interest_points
 )
 
-from proj3_code.utils import (
+from proj2_code.utils import (
     load_image,
 )
 

@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.neighbors import KDTree
 
 
 def compute_feature_distances(features1, features2):
@@ -15,13 +16,21 @@ def compute_feature_distances(features1, features2):
       feature in features1 to each feature in features2
     """
 
-    ###########################################################################
-    # TODO: YOUR CODE HERE                                                    #
-    ###########################################################################
+    n, feat_dim1 = features1.shape
+    m, feat_dim2 = features2.shape
 
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    # Ensure that the feature dimensions match
+    assert feat_dim1 == feat_dim2, "Feature dimensions must match"
+
+    # Initialize the distance matrix
+    dists = np.zeros((n, m))
+
+    # Compute pairwise Euclidean distances
+    for i in range(n):
+        for j in range(m):
+            # Calculate the Euclidean distance between feature i in features1
+            # and feature j in features2
+            dists[i, j] = np.linalg.norm(features1[i] - features2[j])
 
     return dists
 
@@ -55,13 +64,29 @@ def match_features(features1, features2, x1, y1, x2, y2):
     'matches' and 'confidences' can be empty e.g. (0x2) and (0x1)
     """
 
-    ###########################################################################
-    # TODO: YOUR CODE HERE                                                    #
-    ###########################################################################
+    # Compute feature distances
+    dists = compute_feature_distances(features1, features2)
 
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    # Initialize the result arrays
+    matches = []
+    confidences = []
+
+    # Loop through the features in features1
+    for i in range(len(features1)):
+        # Sort the distances to the features in features2 for the current feature in features1
+        sorted_indices = np.argsort(dists[i])
+
+        # Calculate the ratio of the two smallest distances
+        ratio = dists[i][sorted_indices[0]] / dists[i][sorted_indices[1]]
+
+        # Apply the ratio test (typically, a ratio < 0.8 is used)
+        if ratio < 0.8:
+            matches.append([i, sorted_indices[0]])
+            confidences.append(1.0 - ratio)
+
+    # Convert the result lists to numpy arrays
+    matches = np.array(matches)
+    confidences = np.array(confidences)
 
     return matches, confidences
 
@@ -85,14 +110,31 @@ def pca(fvs1, fvs2, n_components= 24):
     -   reduced_fvs2: numpy nd-array of feature vectors with shape (k, m) with m being the desired dimension for image2
     """
 
-    reduced_fvs1, reduced_fvs2 = None, None
-    #############################################################################
-    # TODO: YOUR PCA CODE HERE                                                  #
-    #############################################################################
- 
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    # Combine the feature vectors from both sets for PCA
+    combined_features = np.vstack((fvs1, fvs2))
+
+    # Calculate the mean vector
+    mean_vector = np.mean(combined_features, axis=0)
+
+    # Center the data by subtracting the mean
+    centered_features = combined_features - mean_vector
+
+    # Calculate the covariance matrix
+    covariance_matrix = np.cov(centered_features, rowvar=False)
+
+    # Perform SVD to obtain the principal components
+    U, S, Vt = np.linalg.svd(covariance_matrix)
+
+    # Choose the top n_components principal components
+    U_reduced = U[:, :n_components]
+
+    # Project the centered feature vectors onto the reduced principal components
+    reduced_features = np.dot(centered_features, U_reduced)
+
+    # Split the reduced features back into image1 and image2 sets
+    reduced_fvs1 = reduced_features[:len(fvs1)]
+    reduced_fvs2 = reduced_features[len(fvs1):]
+
     return reduced_fvs1, reduced_fvs2
 
 def accelerated_matching(features1, features2, x1, y1, x2, y2):
@@ -105,15 +147,31 @@ def accelerated_matching(features1, features2, x1, y1, x2, y2):
     to get credit.
     """
 
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                  #
-    #############################################################################
-    
-    raise NotImplementedError('`accelerated_matching` function in ' +
-    '`student_feature_matching.py` needs to be implemented')
-    
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    # Build a KD-tree on features2
+    kd_tree = KDTree(features2)
+
+    # Initialize the result arrays
+    matches = []
+    confidences = []
+
+    # Set a threshold for matching
+    threshold = 0.8  # Adjust as needed
+
+    # Loop through the features in features1
+    for i in range(len(features1)):
+        # Perform a k-Nearest Neighbors search using the KD-tree
+        dists, indices = kd_tree.query([features1[i]], k=2)
+
+        # Calculate the ratio of the two smallest distances
+        ratio = dists[0][0] / dists[0][1]
+
+        # Apply the ratio test
+        if ratio < threshold:
+            matches.append([i, indices[0][0]])
+            confidences.append(1.0 - ratio)
+
+    # Convert the result lists to numpy arrays
+    matches = np.array(matches)
+    confidences = np.array(confidences)
 
     return matches, confidences

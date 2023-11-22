@@ -1,6 +1,8 @@
 import numpy as np
 import torch
-from scipy import stats
+from scipy.stats import mode
+# from skimage import color
+from tqdm import tqdm
 
 from proj3_code.feature_matching.SIFTNet import get_siftnet_features
 from proj3_code.utils import generate_sample_points
@@ -36,15 +38,14 @@ def pairwise_distances(X, Y):
     assert d_y == d_x
 
     # D is the placeholder for the result
-    D = None
+    D = np.zeros((N, M))
 
-    #############################################################################
-    # TODO: YOUR CODE HERE
-    #############################################################################
-    #############################################################################
-    #                             END OF YOUR CODE
-    #                             #
-    #############################################################################
+    # Calculate pairwise distances
+    for i in range(N):
+        for j in range(M):
+            D[i, j] = np.linalg.norm(X[i] - Y[j])
+
+    # print(D)
     return D
 
 
@@ -87,12 +88,17 @@ def nearest_neighbor_classify(train_image_feats,
 
     pred_labels = []
 
-    #############################################################################
-    # TODO: YOUR CODE HERE
-    #############################################################################
-    #############################################################################
-    #                             END OF YOUR CODE
-    #############################################################################
+    distances = pairwise_distances(test_image_feats, train_image_feats)
+
+    for i in range(len(test_image_feats)):
+        k_indices = np.argsort(distances[i])[:k]
+        k_labels = [train_labels[idx] for idx in k_indices]
+        # pred_label = mode(k_labels).mode[0]
+        # pred_label = mode(k_labels)[0]
+        unique_labels, counts = np.unique(k_labels, return_counts=True)
+        pred_label = unique_labels[np.argmax(counts)]
+        pred_labels.append(pred_label)
+
     return pred_labels
 
 
@@ -129,17 +135,30 @@ def kmeans(feature_vectors, k, max_iter=100):
             array of shape (k, d)
     """
 
-    # dummy centroids placeholder
-    centroids = None
-    np.random.seed(42)
-    #############################################################################
-    # TODO: YOUR CODE HERE
-    #  #
-    #############################################################################
-    #############################################################################
-    #                             END OF YOUR CODE
-    #                             #
-    #############################################################################
+    # Ensure k is not greater than the number of data points
+    assert k <= feature_vectors.shape[0]
+
+    # Shuffle the feature vectors and take the first k unique vectors
+    unique_feature_vectors = np.unique(feature_vectors, axis=0)
+    # print(unique_feature_vectors)
+    np.random.shuffle(unique_feature_vectors)
+
+    # Pad centroids with zeros if needed
+    if unique_feature_vectors.shape[0] < k:
+        padding_size = k - unique_feature_vectors.shape[0]
+        zero_padding = np.zeros((padding_size, feature_vectors.shape[1]))
+        centroids = np.vstack((unique_feature_vectors, zero_padding))
+    else:
+        centroids = unique_feature_vectors[:k]
+
+    for _ in range(max_iter):
+        distances = pairwise_distances(feature_vectors, centroids)
+        labels = np.argmin(distances, axis=1)
+        new_centroids = np.array([np.mean(feature_vectors[labels == j], axis=0) for j in range(k)])
+        if np.all(new_centroids == centroids):
+            break
+        centroids = new_centroids
+        # print(centroids)
     return centroids
 
 
@@ -184,14 +203,24 @@ def build_vocabulary(image_arrays, vocab_size=50, stride=20, max_iter=10):
     center/visual word.
     """
 
-    vocab = None
-    #############################################################################
-    # TODO: YOUR CODE HERE
-    #############################################################################
-    #############################################################################
-    #                             END OF YOUR CODE
-    #                             #
-    #############################################################################
+    # Convert image_arrays to torch tensors for SIFtnet
+    # print(image_arrays[0].shape)
+    image_tensors = [torch.from_numpy(img_array).float().unsqueeze(0).unsqueeze(0) for img_array in image_arrays]
+    # print(len(image_tensors))
+    # Initialize an empty array to store sampled SIFT features
+    all_features = np.zeros((0, 128))
+
+    # Sample SIFT features from each image
+    for img_tensor in image_tensors:
+        # print(img_tensor.shape)
+        sample_points_x, sample_points_y = generate_sample_points(img_tensor.shape[2], img_tensor.shape[3], stride)
+        # print(sample_points_x.shape)
+        features = get_siftnet_features(img_tensor, sample_points_x, sample_points_y)
+        all_features = np.vstack((all_features, features))
+
+    # print(all_features.shape)
+    # Perform k-means clustering to obtain the vocabulary
+    vocab = kmeans(all_features, vocab_size, max_iter)
 
     return vocab
 
@@ -219,14 +248,7 @@ def kmeans_quantize(raw_data_pts, centroids):
             a Numpy array of shape (N, )
 
     """
-    indices = None
-    #############################################################################
-    # TODO: YOUR CODE HERE
-    #############################################################################
-    #############################################################################
-    #                             END OF YOUR CODE
-    #                             #
-    #############################################################################
+    indices = np.argmin(pairwise_distances(raw_data_pts, centroids), axis=1)
     return indices
 
 
@@ -271,14 +293,16 @@ def get_bags_of_sifts(image_arrays, vocabulary, stride=5):
     vocab_size = len(vocab)
     num_images = len(image_arrays)
     feats = np.empty((num_images, vocab_size))
-    
-    #############################################################################
-    # TODO: YOUR CODE HERE
-    #  #
-    #############################################################################
-    #############################################################################
-    #                             END OF YOUR CODE
-    #                             #
-    #############################################################################
+
+    image_tensors = [torch.from_numpy(np.array(img_array)).float().unsqueeze(0).unsqueeze(0) for img_array in image_arrays]
+
+    feats = np.empty((num_images, vocab_size))
+
+    for i, img_tensor in tqdm(enumerate(image_tensors), total=len(image_tensors), desc="Bag of SIFTs Progress"):
+        sample_points_x, sample_points_y = generate_sample_points(img_tensor.shape[2], img_tensor.shape[3], stride)
+        sift_features = get_siftnet_features(img_tensor, sample_points_x, sample_points_y)
+        quantized_indices = kmeans_quantize(sift_features, vocabulary)
+        histogram, _ = np.histogram(quantized_indices, bins=np.arange(vocab_size + 1), density=True)
+        feats[i, :] = histogram
 
     return feats
