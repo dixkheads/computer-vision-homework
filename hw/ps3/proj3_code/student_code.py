@@ -4,6 +4,10 @@ from scipy.stats import mode
 # from skimage import color
 from tqdm import tqdm
 
+# SVM classifier use only
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+
 from proj3_code.feature_matching.SIFTNet import get_siftnet_features
 from proj3_code.utils import generate_sample_points
 
@@ -101,6 +105,20 @@ def nearest_neighbor_classify(train_image_feats,
 
     return pred_labels
 
+def SVM_classify(train_image_feats,
+                              train_labels,
+                              test_image_feats, kernel):
+    # Initialize the SVM classifier
+    svm_classifier = SVC(kernel=kernel)
+
+    # Train the SVM classifier
+    svm_classifier.fit(train_image_feats, train_labels)
+
+    # Predict labels for test data
+    pred_labels = svm_classifier.predict(test_image_feats)
+
+    return pred_labels
+
 
 def kmeans(feature_vectors, k, max_iter=100):
     """
@@ -151,7 +169,7 @@ def kmeans(feature_vectors, k, max_iter=100):
     else:
         centroids = unique_feature_vectors[:k]
 
-    for _ in range(max_iter):
+    for _ in tqdm(range(max_iter), desc="KMeans Iteration"):
         distances = pairwise_distances(feature_vectors, centroids)
         labels = np.argmin(distances, axis=1)
         new_centroids = np.array([np.mean(feature_vectors[labels == j], axis=0) for j in range(k)])
@@ -211,7 +229,7 @@ def build_vocabulary(image_arrays, vocab_size=50, stride=20, max_iter=10):
     all_features = np.zeros((0, 128))
 
     # Sample SIFT features from each image
-    for img_tensor in image_tensors:
+    for img_tensor in tqdm(image_tensors, desc="Processing images"):
         # print(img_tensor.shape)
         sample_points_x, sample_points_y = generate_sample_points(img_tensor.shape[2], img_tensor.shape[3], stride)
         # print(sample_points_x.shape)
